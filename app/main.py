@@ -3,21 +3,35 @@ import torch
 from transformers import CLIPProcessor, CLIPModel
 from PIL import Image
 import io
+import logging
 
 app = FastAPI()
 
-# Load CLIP model and processor from Hugging Face
-model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+# Suppress warnings if running in limited memory environment
+logging.getLogger("transformers").setLevel(logging.ERROR)
+
+# Force CPU + float16 to save memory
+device = torch.device("cpu")
+model = CLIPModel.from_pretrained(
+    "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+    torch_dtype=torch.float16
+).to(device)
+
+processor = CLIPProcessor.from_pretrained("laion/CLIP-ViT-B-32-laion2B-s34B-b79K")
 
 @app.post("/embed")
 async def embed(file: UploadFile = File(...)):
-    image_bytes = await file.read()
-    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    
-    # Preprocess and get features
-    inputs = processor(images=image, return_tensors="pt")
-    with torch.no_grad():
-        features = model.get_image_features(**inputs)
-        
-    return {"embedding": features[0].tolist()}
+    try:
+        image_bytes = await file.read()
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+
+        inputs = processor(images=image, return_tensors="pt").to(device)
+
+        with torch.no_grad():
+            features = model.get_image_features(**inputs)
+
+        # Convert to list of floats for JSON
+        return {"embedding": features[0].cpu().tolist()}
+
+    except Exception as e:
+        return {"error": str(e)}
