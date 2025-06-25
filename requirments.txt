@@ -3,5 +3,3 @@ uvicorn
 torch
 transformers
 pillow
-pandas 
-numpy
